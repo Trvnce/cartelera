@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cartelera · Madrid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Cartelera <em>Madrid</em></h1>
+    <p class="meta" id="meta"></p>
+  </div>
+  <div class="views" role="tablist">
+    <button data-view="dia" class="on">Por día</button>
+    <button data-view="peli">Por película</button>
+  </div>
+</header>
+
+<section class="filters">
+  <input id="q" type="search" placeholder="Película, director, ciclo o cine">
+  <div class="row" id="dates"></div>
+  <div class="row">
+    <button class="chip toggle" id="special">★ Solo especiales</button>
+    <span class="sep"></span>
+    <span id="versions"></span>
+    <span class="sep"></span>
+    <label class="price">Hasta <select id="maxprice">
+      <option value="">cualquier precio</option><option value="4">4 €</option>
+      <option value="6">6 €</option><option value="8">8 €</option><option value="10">10 €</option>
+    </select></label>
+    <button class="chip toggle" id="academicos">Mostrar pases solo para académicos</button>
+  </div>
+  <div class="row cinemas" id="cinemas"></div>
+</section>
+
+<main id="list"></main>
+
+<footer id="sources"></footer>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

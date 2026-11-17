@@ -1,0 +1,139 @@
+// Recorre las pantallas con los datos reales de ejemplo para cazar
+// desbordamientos y excepciones de maquetación.
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cartelera/data/model.dart';
+import 'package:cartelera/data/repository.dart';
+import 'package:cartelera/ui/app_model.dart';
+import 'package:cartelera/ui/screens/home_screen.dart';
+import 'package:cartelera/ui/theme.dart';
+import 'package:cartelera/ui/widgets/film_card.dart';
+import 'package:cartelera/ui/widgets/session_tile.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Repositorio de prueba: el ejemplo del paquete, movido a «hoy» y sin pósters
+/// (para no tocar la red), y sin disco.
+class _FakeRepo extends CarteleraRepository {
+  @override
+  Future<void> load() async {
+    final raw = jsonDecode(File('assets/sample_snapshot.json').readAsStringSync()) as Map<String, dynamic>;
+    final base = Snapshot.fromJson(raw);
+    final shift = DateTime.now().difference(DateTime(2026, 11, 17)).inDays;
+    snapshot = Snapshot(
+      generatedAt: DateTime.now(),
+      sources: [
+        ...base.sources,
+        SourceStatus(id: 'rota', name: 'Fuente rota', url: 'https://example.com', ok: false, count: 0,
+            error: 'Tiempo de espera agotado', at: DateTime.now()),
+      ],
+      sessions: [
+        for (final s in base.sessions)
+          Session.fromJson({
+            ...s.toJson(),
+            'start': DateTime(s.start.year, s.start.month, s.start.day + shift, s.start.hour, s.start.minute)
+                .toIso8601String(),
+            'poster': null,
+            'stale': s.cinema == 'Golem Madrid',
+          }),
+      ],
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> refresh() async {}
+}
+
+void main() {
+  for (final (name, size, scale) in [
+    ('móvil', const Size(392, 850), 1.0),
+    ('móvil estrecho con letra grande', const Size(340, 700), 1.3),
+  ]) {
+    testWidgets('recorrido por las pantallas ($name)', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+
+      final model = AppModel(_FakeRepo());
+      await tester.runAsync(model.init);
+      addTearDown(model.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: HomeScreen(model: model),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Cartelera'), findsOneWidget);
+      expect(find.byType(FilmCard), findsWidgets);
+      expect(find.textContaining('lectura anterior'), findsOneWidget); // aviso de pases sin confirmar
+
+      // Catálogo: bajar un buen trecho.
+      await tester.drag(find.byType(FilmCard).first, const Offset(0, -3000));
+      await tester.pumpAndSettle();
+
+      // Agenda.
+      await tester.tap(find.text('Agenda'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SessionTile), findsWidgets);
+      await tester.drag(find.byType(SessionTile).first, const Offset(0, -4000));
+      await tester.pumpAndSettle();
+
+      // Ficha de película desde la agenda.
+      await tester.tap(find.byType(SessionTile).at(2));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('pase'), findsWidgets);
+      await tester.drag(find.byType(CustomScrollView).last, const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Atrás'));
+      await tester.pumpAndSettle();
+
+      // Filtros: abrir, tocar varios y volver.
+      await tester.tap(find.text('Filtros'));
+      await tester.pumpAndSettle();
+      expect(find.text('Cuándo'), findsOneWidget);
+      await tester.tap(find.text('Hoy'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Solo pases especiales'), 200, scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Solo pases especiales'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Solo pases especiales'));
+      await tester.pumpAndSettle();
+      expect(model.filters.onlySpecial, isTrue);
+      await tester.scrollUntilVisible(find.text('Cines'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Filmotecas y salas de autor'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Filmotecas y salas de autor'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Ordenar el catálogo'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Filtros · 2'), findsOneWidget);
+      await tester.tap(find.byTooltip('Cerrar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Filtros · 2'), findsOneWidget);
+      expect(model.active.map((a) => a.label), ['Hoy', 'Solo especiales']);
+
+      // Quitar un filtro desde su chip.
+      await tester.ensureVisible(find.byTooltip('Quitar').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Quitar').first);
+      await tester.pumpAndSettle();
+      expect(model.active.length, 1);
+
+      // Fuentes.
+      await tester.tap(find.byTooltip('Fuentes'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Fuente rota'), 300, scrollable: find.byType(Scrollable).last);
+      expect(find.text('Fuente rota'), findsOneWidget);
+      expect(find.text('Tiempo de espera agotado'), findsOneWidget);
+    });
+  }
+}
