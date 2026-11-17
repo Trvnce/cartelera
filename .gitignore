@@ -1,6 +1,6 @@
-cache/
-data/
-web/data.js
+/cache/
+/data/
+/web/data.js
 __pycache__/
-.claude/
+/.claude/
 *.ipa
