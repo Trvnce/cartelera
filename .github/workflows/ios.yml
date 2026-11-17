@@ -40,14 +40,28 @@ jobs:
 
       - run: flutter pub get
 
+      # flutter genera la configuración y compila el Dart; xcodebuild compila la app con la
+      # firma desactivada en TODOS los objetivos (las dependencias Swift de los controles
+      # nativos piden un equipo de desarrollo si no). SideStore la firma al instalarla.
+      - name: Preparar el proyecto de Xcode
+        run: flutter build ios --release --no-codesign --config-only
+
       - name: Compilar (sin firma)
-        run: flutter build ios --release --no-codesign
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild             -workspace ios/Runner.xcworkspace             -scheme Runner             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath build/xcode             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""             DEVELOPMENT_TEAM=""             build 2>&1 | tee build/xcodebuild.log | grep -E "error:|warning: .*signing|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build/xcodebuild.log
+
+      - name: Errores de Xcode (si falla)
+        if: failure()
+        run: grep -n -B2 -A6 "error:" build/xcodebuild.log | head -150 || tail -150 build/xcodebuild.log
 
       - name: Empaquetar Cartelera.ipa
         run: |
           rm -rf Payload Cartelera.ipa
           mkdir Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/
+          cp -R build/xcode/Build/Products/Release-iphoneos/Runner.app Payload/
           zip -qry Cartelera.ipa Payload
           ls -lh Cartelera.ipa
 
