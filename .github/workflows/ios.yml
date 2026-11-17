@@ -55,7 +55,19 @@ jobs:
 
       - name: Errores de Xcode (si falla)
         if: failure()
-        run: grep -n -B2 -A6 "error:" build/xcodebuild.log | head -150 || tail -150 build/xcodebuild.log
+        run: |
+          echo "=== Líneas con error / fallo ==="
+          grep -n -i -E "error|failed|❌" build/xcodebuild.log | grep -v -i "warning" | head -80 || true
+          echo "=== Comandos que fallaron ==="
+          sed -n '/The following build commands failed/,$p' build/xcodebuild.log | head -40 || true
+          echo "=== Final del log ==="
+          tail -120 build/xcodebuild.log
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: xcodebuild-log
+          path: app/build/xcodebuild.log
 
       - name: Empaquetar Cartelera.ipa
         run: |
