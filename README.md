@@ -33,7 +33,7 @@ Después, abre `web/index.html` en el navegador (no hace falta servidor).
 | `berlanga` | Sala Berlanga | API WordPress (actividades de cine) + ficha | única | — (avisa si está agotado) |
 | `equis` | Sala Equis | PDF mensual, leído por columnas + carteles de /taquilla/ | única | — |
 | `casamerica` | Casa de América (Sala Iberia) | /cine + ficha | Iberia | gratis si es entrada libre |
-| `ecartelera` | mk2 Cine Paz, Yelmo Ideal, Cinesa Príncipe Pío, mk2 Palacio de Hielo, mk2 Cinesur Luz del Tajo (Toledo) | eCartelera, una página por cine y día | no | tarifa publicada en eCartelera |
+| `ecartelera` | mk2 Cine Paz, Yelmo Ideal, Cinesa Príncipe Pío, mk2 Palacio de Hielo, Kinépolis Ciudad de la Imagen, mk2 Cinesur Luz del Tajo (Toledo) | eCartelera, una página por cine y día | no | tarifa publicada en eCartelera |
 
 Las tarifas calculadas (Renoir, Golem, Círculo, eCartelera) no conocen festivos ni descuentos personales.
 eCartelera no tiene sesiones (medido el 17-11-2026) de Pequeño Cine Estudio, Callao, Capitol,
@@ -62,3 +62,7 @@ la tabla `posters` de SQLite).
 3. Cruce con TMDB (pósters, año y director cuando el cine no los da) y con la watchlist de Letterboxd.
 4. Contraste con la agenda abierta del Ayuntamiento (datos.madrid.es, dataset 206974) y con eCartelera.
 5. Ejecución diaria programada (Programador de tareas de Windows o el NAS).
+
+## Icono
+
+Logo «Estrella» (C + estrella de la bandera de Madrid). Todo sale de `branding/gen_icon.py`: `branding/logo.svg`, `branding/play_store_512.png` (icono de la ficha de Play), el icono adaptativo de Android (vector + capa monocroma para iconos temáticos + PNG heredados) y el AppIcon de iOS. Para cambiarlo, edita la geometría del script y ejecuta `python branding/gen_icon.py`; no toques a mano los recursos generados.

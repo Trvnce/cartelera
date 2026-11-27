@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../adaptive.dart';
+import '../../data/engine.dart' show allSources;
 import '../../data/model.dart';
 import '../app_model.dart';
 import '../format.dart';
 import '../theme.dart';
 import '../widgets/open_url.dart';
 
-/// Estado de cada web leída: si ha ido bien, cuántos pases ha dado y el enlace.
+/// Las fuentes: cada web con su interruptor (las desactivadas no se leen y sus pases no
+/// salen), si ha ido bien en la última lectura, cuántos pases ha dado y su enlace.
 class SourcesScreen extends StatelessWidget {
   const SourcesScreen({super.key, required this.model});
   final AppModel model;
@@ -22,14 +24,11 @@ class SourcesScreen extends StatelessWidget {
         final p = repo.progress;
         final now = model.now;
         final finished = {for (final s in p?.finished ?? const <SourceStatus>[]) s.id: s};
-        final known = snap?.sources ?? const <SourceStatus>[];
+        final known = {for (final s in snap?.sources ?? const <SourceStatus>[]) s.id: s};
         // Durante una actualización manda lo recién leído; el resto, lo anterior.
-        final rows = <SourceStatus>[
-          for (final s in known) finished[s.id] ?? s,
-          for (final s in finished.values)
-            if (!known.any((k) => k.id == s.id)) s,
-        ];
-        final failed = rows.where((s) => !s.ok).length;
+        final rows = [for (final src in allSources) (src: src, status: finished[src.id] ?? known[src.id])];
+        final enabledCount = model.enabledSources.length;
+        final failed = rows.where((r) => model.isSourceEnabled(r.src.id) && r.status != null && !r.status!.ok).length;
         return Scaffold(
           appBar: adaptiveBar(
             context,
@@ -61,7 +60,7 @@ class SourcesScreen extends StatelessWidget {
                         Text(
                           'La app lee la web de cada cine desde este móvil. '
                           '${snap == null ? '' : '${plural(snap.sessions.length, 'pase leído', 'pases leídos')} de '
-                              '${plural(known.length, 'fuente', 'fuentes')}.'}',
+                              '${plural(enabledCount, 'fuente activada', 'fuentes activadas')}.'}',
                           style: const TextStyle(fontSize: 14, height: 1.35, color: AppColors.muted),
                         ),
                         if (p != null) ...[
@@ -90,7 +89,7 @@ class SourcesScreen extends StatelessWidget {
                         ],
                         const SizedBox(height: 14),
                         FilledButton.icon(
-                          onPressed: repo.refreshing ? null : repo.refresh,
+                          onPressed: repo.refreshing ? null : model.refresh,
                           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
                           icon: const Icon(Icons.refresh),
                           label: Text(repo.refreshing ? 'Actualizando…' : 'Actualizar ahora'),
@@ -100,31 +99,26 @@ class SourcesScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              if (rows.isEmpty && p == null)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Text(
-                    'Aún no hay fuentes leídas.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppColors.muted),
-                  ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text(
+                  'Desactiva las que no te interesen: no se leen al actualizar y sus pases dejan de salir.',
+                  style: TextStyle(fontSize: 13.5, height: 1.35, color: AppColors.muted),
                 ),
-              for (final s in rows)
+              ),
+              for (final r in rows)
                 _SourceTile(
-                  status: s,
+                  name: r.src.name,
+                  url: r.src.url,
+                  status: r.status,
+                  enabled: model.isSourceEnabled(r.src.id),
+                  // La última activada no se puede apagar: la cartelera se quedaría vacía.
+                  locked: model.isSourceEnabled(r.src.id) && enabledCount <= 1,
+                  onChanged: (v) => model.setSourceEnabled(r.src.id, v),
                   now: now,
-                  running: p != null && p.running.contains(s.name),
-                  pending: p != null && !finished.containsKey(s.id),
+                  running: p != null && p.running.contains(r.src.name),
+                  pending: p != null && !finished.containsKey(r.src.id),
                 ),
-              // Fuentes en curso que todavía no conocemos de lecturas anteriores.
-              if (p != null)
-                for (final name in p.running)
-                  if (!rows.any((r) => r.name == name))
-                    ListTile(
-                      leading: const _Spinner(),
-                      title: Text(name),
-                      subtitle: const Text('Leyendo…'),
-                    ),
             ],
           ),
         );
@@ -168,8 +162,25 @@ class _Warning extends StatelessWidget {
 }
 
 class _SourceTile extends StatelessWidget {
-  const _SourceTile({required this.status, required this.now, required this.running, required this.pending});
-  final SourceStatus status;
+  const _SourceTile({
+    required this.name,
+    required this.url,
+    required this.status,
+    required this.enabled,
+    required this.locked,
+    required this.onChanged,
+    required this.now,
+    required this.running,
+    required this.pending,
+  });
+  final String name;
+  final String url;
+
+  /// Última lectura de la fuente (null si no se ha leído nunca o se desactivó).
+  final SourceStatus? status;
+  final bool enabled;
+  final bool locked;
+  final ValueChanged<bool> onChanged;
   final DateTime now;
   final bool running;
 
@@ -182,40 +193,79 @@ class _SourceTile extends StatelessWidget {
     final s = status;
     final Widget leading = running
         ? const _Spinner()
-        : Icon(
-            s.ok ? Icons.check_circle_rounded : Icons.error_rounded,
-            color: (s.ok ? AppColors.ok : AppColors.error).withValues(alpha: pending ? 0.45 : 1),
-          );
-    final when = 'leída ${fmtUpdated(s.at, now)}';
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: leading,
-      title: Text(s.name, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            running
-                ? 'Leyendo…'
-                : s.ok
-                    ? '${plural(s.count, 'pase', 'pases')} · $when'
-                    : 'Ha fallado · $when',
-            style: const TextStyle(fontSize: 13, color: AppColors.muted),
-          ),
-          if (!s.ok && s.error != null && s.error!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                s.error!,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13, color: AppColors.error),
+        : !enabled || s == null
+            ? Icon(enabled ? Icons.radio_button_unchecked : Icons.do_not_disturb_on_outlined, color: AppColors.muted)
+            : Icon(
+                s.ok ? Icons.check_circle_rounded : Icons.error_rounded,
+                color: (s.ok ? AppColors.ok : AppColors.error).withValues(alpha: pending ? 0.45 : 1),
+              );
+    final String line;
+    if (!enabled) {
+      line = 'Desactivada';
+    } else if (running) {
+      line = 'Leyendo…';
+    } else if (s == null) {
+      line = 'Sin leer todavía';
+    } else {
+      final when = 'leída ${fmtUpdated(s.at, now)}';
+      line = !s.ok
+          ? 'Ha fallado · $when'
+          : s.count == 0
+              ? 'Sin sesiones por ahora · $when'
+              : '${plural(s.count, 'pase', 'pases')} · $when';
+    }
+    return Opacity(
+      opacity: enabled ? 1 : 0.6,
+      child: AdaptiveSwitchTile(
+        secondary: leading,
+        value: enabled,
+        onChanged: (v) {
+          if (!v && locked) {
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(const SnackBar(content: Text('Deja al menos una fuente activada')));
+            return;
+          }
+          onChanged(v);
+        },
+        title: Text(name, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(line, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+            if (enabled && !running && s != null && !s.ok && s.error != null && s.error!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  s.error!,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: AppColors.error),
+                ),
+              ),
+            InkWell(
+              onTap: () => openUrl(context, url),
+              borderRadius: BorderRadius.circular(6),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text.rich(
+                  TextSpan(children: [
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: Padding(
+                        padding: EdgeInsets.only(right: 4),
+                        child: Icon(Icons.open_in_new, size: 15, color: AppColors.amber),
+                      ),
+                    ),
+                    TextSpan(text: 'Abrir la web'),
+                  ]),
+                  style: TextStyle(fontSize: 13, color: AppColors.amber, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
-      trailing: const Icon(Icons.open_in_new, size: 20, color: AppColors.muted),
-      onTap: () => openUrl(context, s.url),
     );
   }
 }

@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute<void>(builder: (_) => SourcesScreen(model: model)),
       );
 
-  Future<void> _refresh() => model.repo.refresh();
+  Future<void> _refresh() => model.refresh();
 
   @override
   Widget build(BuildContext context) {

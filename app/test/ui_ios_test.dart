@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:cartelera/data/model.dart';
 import 'package:cartelera/data/repository.dart';
+import 'package:cartelera/data/sources/source.dart';
 import 'package:cartelera/ui/app_model.dart';
 import 'package:cartelera/ui/screens/home_screen.dart';
 import 'package:cartelera/ui/theme.dart';
@@ -41,7 +42,7 @@ class _FakeRepo extends CarteleraRepository {
   }
 
   @override
-  Future<void> refresh() async {}
+  Future<void> refresh({List<Source>? sources, bool partial = false}) async {}
 }
 
 void main() {

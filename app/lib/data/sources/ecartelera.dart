@@ -15,12 +15,15 @@ import 'source.dart';
 /// Callao, Capitol ni Zoco Majadahonda.
 const _base = 'https://www.ecartelera.com/cines/';
 const _daysAhead = 10;
-const _cinemas = <String, (String, bool)>{
-  '40,0,1.html': ('mk2 Cine Paz', true),
-  '54,0,1.html': ('Yelmo Cines Ideal', true),
-  '53,0,1.html': ('Cinesa Príncipe Pío', false),
-  'dreams-cinema-palacio-hielo/': ('mk2 Palacio de Hielo', false),
-  '471,0,1.html': ('mk2 Cinesur Luz del Tajo (Toledo)', false),
+/// Cada cine es una fuente propia (se puede desactivar por separado):
+/// id → (página en eCartelera, nombre, sala de versión original).
+const _cinemas = <String, (String, String, bool)>{
+  'paz': ('40,0,1.html', 'mk2 Cine Paz', true),
+  'ideal': ('54,0,1.html', 'Yelmo Cines Ideal', true),
+  'principepio': ('53,0,1.html', 'Cinesa Príncipe Pío', false),
+  'palaciohielo': ('dreams-cinema-palacio-hielo/', 'mk2 Palacio de Hielo', false),
+  'kinepolis': ('56,0,1.html', 'Kinépolis Ciudad de la Imagen', false),
+  'toledo': ('471,0,1.html', 'mk2 Cinesur Luz del Tajo (Toledo)', false),
 };
 const _weekdays = {'lunes': 1, 'martes': 2, 'miercoles': 3, 'miércoles': 3, 'jueves': 4, 'viernes': 5, 'sabado': 6, 'sábado': 6, 'domingo': 7};
 
@@ -53,7 +56,7 @@ DateTime? _dateFromLabel(String label, DateTime t) {
   return (general, reduced);
 }
 
-List<Session> _parse(Document doc, String name, bool vo, DateTime d, (double?, Map<int, double>) prices) {
+List<Session> _parse(Document doc, String sourceId, String name, bool vo, DateTime d, (double?, Map<int, double>) prices) {
   final (general, reduced) = prices;
   final out = <Session>[];
   for (final it in doc.querySelectorAll('div.titem')) {
@@ -66,7 +69,7 @@ List<Session> _parse(Document doc, String name, bool vo, DateTime d, (double?, M
     final country = data.where((x) => !RegExp(r'^\d').hasMatch(x)).firstOrNull;
     final director = it.querySelectorAll('p.dir a').map(txt).join(', ');
     final img = it.querySelector('.tposter img')?.attributes['src'];
-    for (final s in it.querySelectorAll('.sessions a')) {
+    for (final s in it.querySelectorAll('.sessions [data-session-time]')) {
       final time = s.attributes['data-session-time'];
       if (time == null) continue;
       final fmt = clean(s.attributes['data-session-format']);
@@ -75,7 +78,7 @@ List<Session> _parse(Document doc, String name, bool vo, DateTime d, (double?, M
       final start = at(d, time);
       final price = reduced[start.weekday] ?? general;
       out.add(Session(
-        source: 'ecartelera',
+        source: sourceId,
         cinema: name,
         title: title,
         rawTitle: raw,
@@ -96,36 +99,40 @@ List<Session> _parse(Document doc, String name, bool vo, DateTime d, (double?, M
   return out;
 }
 
-final ecartelera = Source(
-  id: 'ecartelera',
-  name: 'vía eCartelera: Paz, Yelmo Ideal, Príncipe Pío, Palacio de Hielo, Toledo',
-  url: '${_base}0,30,1.html',
-  fetch: (Net net) async {
-    final t = today();
-    final out = <Session>[];
-    final errors = <String>[];
-    for (final e in _cinemas.entries) {
-      final url = _base + e.key;
-      final (name, vo) = e.value;
-      try {
-        final doc = parseHtml(await net.getText(url));
-        final prices = _prices(doc);
-        final days = <(DateTime, String)>[];
-        for (final a in doc.querySelectorAll('ul.days a')) {
-          final d = _dateFromLabel(a.attributes['title'] ?? a.text, t);
-          final href = a.attributes['href'];
-          if (d != null && href != null && !d.isAfter(t.add(const Duration(days: _daysAhead)))) days.add((d, href));
-        }
-        if (days.isEmpty) days.add((t, url));
-        for (final (d, href) in days) {
-          final page = href.replaceAll(RegExp(r'/$'), '') == url.replaceAll(RegExp(r'/$'), '') ? doc : parseHtml(await net.getText(href));
-          out.addAll(_parse(page, name, vo, d, prices));
-        }
-      } catch (err) {
-        errors.add('$name: $err');
+/// Las fuentes de eCartelera, una por cine. Su `id` es `ecartelera:<cine>`.
+final ecarteleraSources = <Source>[
+  for (final e in _cinemas.entries) _cinemaSource(e.key, e.value.$1, e.value.$2, e.value.$3),
+];
+
+Source _cinemaSource(String id, String path, String name, bool vo) {
+  final url = _base + path;
+  final sourceId = 'ecartelera:$id';
+  return Source(
+    id: sourceId,
+    name: '$name (vía eCartelera)',
+    url: url,
+    emptyIsOk: true,
+    fetch: (Net net) async {
+      final t = today();
+      final doc = parseHtml(await net.getText(url));
+      // Sin pases es normal a última hora; sin la lista de días, la página ha cambiado.
+      if (doc.querySelector('ul.days') == null && doc.querySelector('div.titem') == null) {
+        throw Exception('La página de eCartelera ya no tiene la forma esperada');
       }
-    }
-    if (out.isEmpty && errors.isNotEmpty) throw Exception(errors.join('; '));
-    return out;
-  },
-);
+      final prices = _prices(doc);
+      final days = <(DateTime, String)>[];
+      for (final a in doc.querySelectorAll('ul.days a')) {
+        final d = _dateFromLabel(a.attributes['title'] ?? a.text, t);
+        final href = a.attributes['href'];
+        if (d != null && href != null && !d.isAfter(t.add(const Duration(days: _daysAhead)))) days.add((d, href));
+      }
+      if (days.isEmpty) days.add((t, url));
+      final out = <Session>[];
+      for (final (d, href) in days) {
+        final page = href.replaceAll(RegExp(r'/$'), '') == url.replaceAll(RegExp(r'/$'), '') ? doc : parseHtml(await net.getText(href));
+        out.addAll(_parse(page, sourceId, name, vo, d, prices));
+      }
+      return out;
+    },
+  );
+}

@@ -66,9 +66,16 @@ class DayHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(
-            fmtDayTitle(day, now),
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.2),
+          // Con letra grande en un móvil estrecho no cabe todo: el día se recorta antes que
+          // desbordar, y se queda con casi todo el sitio frente al subtítulo.
+          Flexible(
+            flex: 4,
+            child: Text(
+              fmtDayTitle(day, now),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.2),
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(

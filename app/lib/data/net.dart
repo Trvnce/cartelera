@@ -39,8 +39,13 @@ class Net {
 
   void close() => _client.close();
 
+  /// Una petición fallida no se queda en la caché: si no, reintentarla dentro de la
+  /// misma actualización devolvería el mismo error sin volver a preguntar a la web.
   Future<Uint8List> getBytes(String url) {
-    return _cache.putIfAbsent(url, () => _fetch(url));
+    return _cache.putIfAbsent(url, () => _fetch(url).catchError((Object e, StackTrace st) {
+          _cache.remove(url);
+          return Future<Uint8List>.error(e, st);
+        }));
   }
 
   Future<String> getText(String url) async => decode(await getBytes(url));

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:cartelera/data/model.dart';
 import 'package:cartelera/data/repository.dart';
+import 'package:cartelera/data/sources/source.dart';
 import 'package:cartelera/ui/app_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,7 +24,7 @@ class _FakeRepo extends CarteleraRepository {
   }
 
   @override
-  Future<void> refresh() async {
+  Future<void> refresh({List<Source>? sources, bool partial = false}) async {
     progress = RefreshProgress(total: 1, done: 0, running: const [], finished: const []);
     notifyListeners();
     if (!failNext) snapshot = next;

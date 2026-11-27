@@ -22,7 +22,7 @@ Future<void> fillPosters(List<Session> sessions, Net net, File cacheFile) async 
   final byTitle = <String, (int, String)>{};
   for (final s in sessions) {
     if (s.poster == null) continue;
-    final rank = _vertical[s.source] ?? 9;
+    final rank = _vertical[s.source.split(':').first] ?? 9; // ecartelera:<cine> → ecartelera
     final cur = byTitle[s.filmKey];
     if (cur == null || rank < cur.$1) byTitle[s.filmKey] = (rank, s.poster!);
   }
