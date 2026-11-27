@@ -58,16 +58,21 @@ class _Placeholder extends StatelessWidget {
                 children: [
                   const Icon(Icons.local_movies_outlined, color: AppColors.amber, size: 18),
                   const Spacer(),
-                  Text(
-                    title,
-                    maxLines: 5,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.15,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.cream,
-                      letterSpacing: -0.2,
+                  // Flexible: durante el vuelo del póster (Hero) el tamaño cambia y el
+                  // título se recorta en lugar de desbordar.
+                  Flexible(
+                    flex: 100,
+                    child: Text(
+                      title,
+                      maxLines: 5,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.cream,
+                        letterSpacing: -0.2,
+                      ),
                     ),
                   ),
                 ],

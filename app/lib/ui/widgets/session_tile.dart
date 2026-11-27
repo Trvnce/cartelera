@@ -2,16 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../data/model.dart';
 import '../format.dart';
+import '../motion.dart';
 import '../theme.dart';
 import 'badges.dart';
 import 'poster.dart';
 
 /// Fila de la agenda: hora, miniatura, título, cine · sala, etiquetas y precio.
 class SessionTile extends StatelessWidget {
-  const SessionTile({super.key, required this.session, required this.onTap});
+  const SessionTile({super.key, required this.session, required this.onTap, this.heroTag});
 
   final Session session;
   final VoidCallback onTap;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
@@ -43,8 +45,9 @@ class SessionTile extends StatelessWidget {
                   ),
                 ),
               ),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+              PosterHero(
+                tag: heroTag,
+                radius: 6,
                 child: SizedBox(
                   width: 44,
                   height: 66,

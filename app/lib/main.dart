@@ -3,18 +3,45 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'data/alerts.dart';
 import 'data/repository.dart';
 import 'ui/app_model.dart';
+import 'ui/screens/film_screen.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/theme.dart';
+import 'ui/widgets/poster_backdrop.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // De borde a borde: la app pinta bajo las barras del sistema.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  warmUpGrain(); // textura de grano del fondo de las fichas
   final model = AppModel(CarteleraRepository());
   model.init(); // carga lo guardado y, si está viejo, actualiza sola
   runApp(CarteleraApp(model: model));
+  if (AppModel.alertsSupported) _initAlerts(model);
+}
+
+final _navigator = GlobalKey<NavigatorState>();
+
+/// Notificaciones de pases nuevos: al pulsar una se abre la ficha de esa película.
+Future<void> _initAlerts(AppModel model) async {
+  final launchedWith = await AlertNotifier.init(onOpen: (k) => _openFilm(model, k));
+  if (launchedWith != null) _openFilm(model, launchedWith);
+}
+
+void _openFilm(AppModel model, String filmKey) {
+  if (!model.ready) {
+    // Arranque en frío desde la notificación: espera a tener la cartelera cargada.
+    void wait() {
+      if (!model.ready) return;
+      model.removeListener(wait);
+      _openFilm(model, filmKey);
+    }
+    model.addListener(wait);
+    return;
+  }
+  _navigator.currentState?.push(MaterialPageRoute<void>(builder: (_) => FilmScreen(model: model, filmKey: filmKey)));
 }
 
 /// Vista previa del diseño de iPhone en un Android:
@@ -32,6 +59,7 @@ class CarteleraApp extends StatelessWidget {
     return MaterialApp(
       title: 'Cartelera',
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navigator,
       theme: forceIos ? buildTheme().copyWith(platform: TargetPlatform.iOS) : buildTheme(),
       darkTheme: forceIos ? buildTheme().copyWith(platform: TargetPlatform.iOS) : buildTheme(),
       // En la vista previa, también el rebote del scroll al estilo iOS.

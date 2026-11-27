@@ -7,9 +7,12 @@ import '../app_model.dart';
 import '../filters/filter_state.dart';
 import '../filters/filters_screen.dart';
 import '../format.dart';
+import '../motion.dart';
 import '../theme.dart';
+import '../update_prompt.dart';
 import '../widgets/status_strip.dart';
 import 'agenda_view.dart';
+import 'alerts_screen.dart';
 import 'catalog_view.dart';
 import 'film_screen.dart';
 import 'sources_screen.dart';
@@ -30,6 +33,17 @@ class _HomeScreenState extends State<HomeScreen> {
   final _searchFocus = FocusNode();
 
   AppModel get model => widget.model;
+
+  @override
+  void initState() {
+    super.initState();
+    // Versión nueva en GitHub (Android): se mira con calma, cuando ya se ve la app.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (mounted) checkForUpdateOnLaunch(context);
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -53,13 +67,20 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _searching = false);
   }
 
-  void _openFilm(String filmKey) => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => FilmScreen(model: model, filmKey: filmKey)),
-      );
+  void _openFilm(String filmKey, {String? heroTag}) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => FilmScreen(model: model, filmKey: filmKey, heroTag: heroTag),
+    ),
+  );
 
-  void _openSources() => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => SourcesScreen(model: model)),
-      );
+  void _openSources() =>
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => SourcesScreen(model: model)));
+
+  void _openAlerts() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => AlertsScreen(model: model, onOpenFilm: (k) => _openFilm(k)),
+    ),
+  );
 
   Future<void> _refresh() => model.refresh();
 
@@ -77,7 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
           },
           child: Scaffold(
             extendBody: useNativeIos,
-            appBar: _searching ? _searchBar() : _mainBar(),
+            appBar: _bar(),
             body: Column(
               children: [
                 StatusStrip(model: model, onOpenSources: _openSources),
@@ -87,15 +108,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: !model.ready
                       ? const Center(child: CircularProgressIndicator.adaptive())
                       : snap == null
-                          ? _NoData(error: repo.lastError, refreshing: repo.refreshing, onRefresh: _refresh)
-                          : IndexedStack(
-                              index: model.tab,
-                              children: [
-                                CatalogView(model: model, onOpenFilm: _openFilm, onRefresh: _refresh),
-                                AgendaView(model: model, onOpenFilm: _openFilm, onRefresh: _refresh),
-                                FavoritesView(model: model, onOpenFilm: _openFilm, onRefresh: _refresh),
-                              ],
-                            ),
+                      ? _NoData(error: repo.lastError, refreshing: repo.refreshing, onRefresh: _refresh)
+                      : FadeThroughIndexedStack(
+                          index: model.tab,
+                          children: [
+                            CatalogView(model: model, onOpenFilm: _openFilm, onRefresh: _refresh),
+                            AgendaView(model: model, onOpenFilm: _openFilm, onRefresh: _refresh),
+                            FavoritesView(model: model, onOpenFilm: _openFilm, onRefresh: _refresh),
+                          ],
+                        ),
                 ),
               ],
             ),
@@ -140,6 +161,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// En Android, la barra de búsqueda entra con un fundido y un leve desplazamiento.
+  PreferredSizeWidget _bar() {
+    final bar = _searching ? _searchBar() : _mainBar();
+    if (!useMaterialMotion(context)) return bar;
+    return PreferredSize(
+      preferredSize: bar.preferredSize,
+      child: AnimatedSwitcher(
+        duration: Motion.medium,
+        switchInCurve: Motion.enter,
+        switchOutCurve: Motion.exit,
+        transitionBuilder: (c, a) => FadeTransition(
+          opacity: a,
+          child: SlideTransition(
+            position: Tween(begin: const Offset(0.04, 0), end: Offset.zero).animate(a),
+            child: c,
+          ),
+        ),
+        child: KeyedSubtree(key: ValueKey(_searching), child: bar),
+      ),
+    );
+  }
+
   PreferredSizeWidget _mainBar() {
     final repo = model.repo;
     final snap = repo.snapshot;
@@ -149,8 +192,8 @@ class _HomeScreenState extends State<HomeScreen> {
       subtitle: repo.refreshing
           ? 'Actualizando…'
           : snap == null
-              ? 'Madrid'
-              : 'Madrid · actualizada ${fmtUpdated(snap.generatedAt, model.now)}',
+          ? 'Madrid'
+          : 'Madrid · actualizada ${fmtUpdated(snap.generatedAt, model.now)}',
       // En iOS la barra centra el título: las acciones van a la derecha y una a la izquierda.
       leading: isCupertino(context)
           ? CupertinoButton(
@@ -161,7 +204,13 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : null,
       actions: [
-        BarAction(icon: Icons.search, cupertinoIcon: CupertinoIcons.search, sfSymbol: 'magnifyingglass', tooltip: 'Buscar', onPressed: _openSearch),
+        BarAction(
+          icon: Icons.search,
+          cupertinoIcon: CupertinoIcons.search,
+          sfSymbol: 'magnifyingglass',
+          tooltip: 'Buscar',
+          onPressed: _openSearch,
+        ),
         BarAction(
           icon: Icons.refresh,
           cupertinoIcon: CupertinoIcons.arrow_clockwise,
@@ -170,8 +219,21 @@ class _HomeScreenState extends State<HomeScreen> {
           busy: repo.refreshing,
           onPressed: repo.refreshing ? null : _refresh,
         ),
+        if (AppModel.alertsSupported && !isCupertino(context))
+          BarAction(
+            icon: model.alerts.isEmpty ? Icons.notifications_none : Icons.notifications_active,
+            cupertinoIcon: CupertinoIcons.bell,
+            color: model.alerts.isEmpty ? null : AppColors.amber,
+            tooltip: 'Avisos',
+            onPressed: _openAlerts,
+          ),
         if (!isCupertino(context))
-          BarAction(icon: Icons.dns_outlined, cupertinoIcon: CupertinoIcons.antenna_radiowaves_left_right, tooltip: 'Fuentes', onPressed: _openSources),
+          BarAction(
+            icon: Icons.dns_outlined,
+            cupertinoIcon: CupertinoIcons.antenna_radiowaves_left_right,
+            tooltip: 'Fuentes',
+            onPressed: _openSources,
+          ),
       ],
     );
   }
@@ -198,21 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return AppBar(
       titleSpacing: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        tooltip: 'Cerrar la búsqueda',
-        onPressed: _closeSearch,
-      ),
+      leading: IconButton(icon: const Icon(Icons.arrow_back), tooltip: 'Cerrar la búsqueda', onPressed: _closeSearch),
       title: TextField(
         controller: _search,
         focusNode: _searchFocus,
         textInputAction: TextInputAction.search,
         textCapitalization: TextCapitalization.none,
         style: const TextStyle(fontSize: 17),
-        decoration: const InputDecoration(
-          hintText: 'Título, director, ciclo o cine',
-          border: InputBorder.none,
-        ),
+        decoration: const InputDecoration(hintText: 'Título, director, ciclo o cine', border: InputBorder.none),
         onChanged: (v) => model.setFilters(model.filters.copyWith(query: v)),
         onSubmitted: (_) => _closeSearch(),
       ),
@@ -245,18 +300,20 @@ class _FilterBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         children: [
           Center(
-            child: FilledButton.tonalIcon(
-              onPressed: onOpenFilters,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                backgroundColor: active.isEmpty ? AppColors.surfaceHigh : AppColors.amber,
-                foregroundColor: active.isEmpty ? AppColors.cream : AppColors.onAmber,
-                textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-              ),
-              icon: const Icon(Icons.tune, size: 20),
-              label: Text(active.isEmpty ? 'Filtros' : 'Filtros · ${active.length}'),
-            ),
+            child: !isCupertino(context)
+                ? _FiltersPill(count: active.length, onTap: onOpenFilters)
+                : FilledButton.tonalIcon(
+                    onPressed: onOpenFilters,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      backgroundColor: active.isEmpty ? AppColors.surfaceHigh : AppColors.amber,
+                      foregroundColor: active.isEmpty ? AppColors.cream : AppColors.onAmber,
+                      textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
+                    icon: const Icon(Icons.tune, size: 20),
+                    label: Text(active.isEmpty ? 'Filtros' : 'Filtros · ${active.length}'),
+                  ),
           ),
           if (active.isEmpty)
             Center(
@@ -283,12 +340,98 @@ class _FilterBar extends StatelessWidget {
             ),
           if (active.length > 1)
             Center(
-              child: TextButton(
-                onPressed: () => model.setFilters(f.cleared()),
-                child: const Text('Quitar todos'),
-              ),
+              child: TextButton(onPressed: () => model.setFilters(f.cleared()), child: const Text('Quitar todos')),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Botón de filtros de Android: una píldora discreta con borde fino. Con filtros
+/// activos, el icono y el borde toman el ámbar y aparece el número en una pastilla,
+/// sin pintar el botón entero.
+class _FiltersPill extends StatelessWidget {
+  const _FiltersPill({required this.count, required this.onTap});
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = count > 0;
+    return Semantics(
+      button: true,
+      label: on ? 'Filtros, $count activos' : 'Filtros',
+      excludeSemantics: true,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Center(
+          child: AnimatedContainer(
+            duration: Motion.medium,
+            curve: Motion.standard,
+            height: 38,
+            decoration: ShapeDecoration(
+              color: on ? AppColors.amber.withValues(alpha: 0.10) : AppColors.surface,
+              shape: StadiumBorder(
+                side: BorderSide(color: on ? AppColors.amber.withValues(alpha: 0.55) : AppColors.outline, width: 1),
+              ),
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                customBorder: const StadiumBorder(),
+                onTap: onTap,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 14),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedRotation(
+                        turns: on ? 0.5 : 0,
+                        duration: Motion.long,
+                        curve: Motion.standard,
+                        child: Icon(Icons.tune_rounded, size: 18, color: on ? AppColors.amber : AppColors.cream),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Filtros',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.cream),
+                      ),
+                      AnimatedSize(
+                        duration: Motion.medium,
+                        curve: Motion.enter,
+                        child: on
+                            ? Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: SwapIcon(
+                                  child: Container(
+                                    key: ValueKey(count),
+                                    constraints: const BoxConstraints(minWidth: 20),
+                                    height: 20,
+                                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                                    alignment: Alignment.center,
+                                    decoration: const ShapeDecoration(color: AppColors.amber, shape: StadiumBorder()),
+                                    child: Text(
+                                      '$count',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.onAmber,
+                                        height: 1,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -317,7 +460,11 @@ class _NoData extends StatelessWidget {
             ),
             if (error != null) ...[
               const SizedBox(height: 8),
-              Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.muted)),
+              Text(
+                error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.muted),
+              ),
             ],
             const SizedBox(height: 20),
             if (!refreshing)
@@ -406,9 +553,7 @@ class SortButton extends StatelessWidget {
           shrinkWrap: true,
           labelFontSize: 13,
           semanticLabel: 'Ordenar',
-          items: [
-            for (final s in CatalogSort.values) CNPopupMenuItem(label: sortLabel(s), checked: s == f.sort),
-          ],
+          items: [for (final s in CatalogSort.values) CNPopupMenuItem(label: sortLabel(s), checked: s == f.sort)],
           onSelected: (i) => model.setFilters(f.copyWith(sort: CatalogSort.values[i])),
         ),
       );
@@ -434,8 +579,12 @@ class SortButton extends StatelessWidget {
             const Icon(CupertinoIcons.arrow_up_arrow_down, size: 15, color: AppColors.cream),
             const SizedBox(width: 5),
             Flexible(
-              child: Text(sortLabel(f.sort), maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.cream)),
+              child: Text(
+                sortLabel(f.sort),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.cream),
+              ),
             ),
           ],
         ),

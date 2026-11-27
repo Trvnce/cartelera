@@ -22,5 +22,38 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // Actualizaciones desde GitHub Releases (ver Updater.kt y lib/data/updater.dart).
+        val updater = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "cartelera/updater")
+        Updater.onStatus = { ok, message ->
+            runOnUiThread { updater.invokeMethod("installStatus", mapOf("ok" to ok, "message" to message)) }
+        }
+        updater.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "info" -> result.success(Updater.info(applicationContext))
+                "canInstall" -> result.success(Updater.canInstall(applicationContext))
+                "openInstallSettings" -> {
+                    Updater.openInstallSettings(this)
+                    result.success(null)
+                }
+                "install" -> {
+                    val path = call.argument<String>("path")
+                    if (path == null) {
+                        result.error("args", "Falta la ruta del APK", null)
+                    } else {
+                        // Copiar el APK a la sesión lleva un momento: fuera del hilo principal.
+                        Thread {
+                            try {
+                                Updater.install(applicationContext, path)
+                                runOnUiThread { result.success(null) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("install", e.message, null) }
+                            }
+                        }.start()
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'theme.dart';
 
 /// Piezas que cambian según la plataforma:
@@ -145,9 +146,11 @@ PreferredSizeWidget adaptiveBar(
       if (textAction != null) TextButton(onPressed: textAction.onPressed, child: Text(textAction.label)),
       for (final a in actions)
         IconButton(
-          icon: a.busy
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4))
-              : Icon(a.icon, color: a.color),
+          icon: SwapIcon(
+            child: a.busy
+                ? const SizedBox(key: ValueKey('busy'), width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4))
+                : Icon(a.icon, key: ValueKey(a.icon), color: a.color),
+          ),
           tooltip: a.tooltip,
           onPressed: a.busy ? null : a.onPressed,
         ),

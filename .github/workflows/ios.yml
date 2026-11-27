@@ -90,4 +90,4 @@ jobs:
           TAG="ios-${{ github.run_number }}"
           gh release create "$TAG" Cartelera.ipa \
             --title "Cartelera iOS #${{ github.run_number }}" \
-            --notes "IPA sin firmar para instalar con SideStore. Commit ${{ github.sha }}."
+            --notes "IPA sin firmar para instalar con SideStore. Commit ${{ github.sha }}."             --latest=false # la «última» es la de Android: la app de Android busca ahí su APK

@@ -4,6 +4,7 @@ import '../app_model.dart';
 import '../format.dart';
 import '../theme.dart';
 import '../widgets/session_tile.dart';
+import 'catalog_view.dart' show OpenFilm;
 import 'home_screen.dart' show EmptyResults;
 
 /// Agenda: todos los pases por orden de hora, con la cabecera del día fija
@@ -12,7 +13,7 @@ class AgendaView extends StatelessWidget {
   const AgendaView({super.key, required this.model, required this.onOpenFilm, required this.onRefresh});
 
   final AppModel model;
-  final ValueChanged<String> onOpenFilm;
+  final OpenFilm onOpenFilm;
   final Future<void> Function() onRefresh;
 
   @override
@@ -36,7 +37,7 @@ class AgendaView extends StatelessWidget {
                         separatorBuilder: (_, _) => const Divider(indent: 70),
                         itemBuilder: (context, i) {
                           final s = g.sessions[i];
-                          return SessionTile(session: s, onTap: () => onOpenFilm(s.filmKey));
+                          return SessionTile(session: s, heroTag: 'agenda/${s.key}', onTap: () => onOpenFilm(s.filmKey, heroTag: 'agenda/${s.key}'));
                         },
                       ),
                     ],
