@@ -1,10 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:path_provider/path_provider.dart';
 
+import 'alerts.dart';
 import 'engine.dart';
 import 'keep_alive.dart';
 import 'model.dart';
@@ -31,16 +32,21 @@ class CarteleraRepository extends ChangeNotifier {
   /// true mientras se enseñan los datos de ejemplo del paquete (nunca se ha actualizado).
   bool _fromSample = false;
 
-  Future<File> _file() async {
-    final dir = await getApplicationSupportDirectory();
-    return File('${dir.path}/cartelera.json');
-  }
+  /// Qué se vigila para avisar de pases nuevos (lo fija [AppModel]).
+  AlertPrefs alerts = AlertPrefs();
+
+  /// Fecha de modificación del fichero cuando se leyó o escribió por última vez: si cambia,
+  /// lo ha reescrito la comprobación de avisos en segundo plano.
+  DateTime? _fileStamp;
+
+  Future<File> _file() => snapshotFile();
 
   Future<void> load() async {
     try {
       final f = await _file();
       if (await f.exists()) {
         snapshot = Snapshot.fromJson(jsonDecode(await f.readAsString()) as Map<String, dynamic>);
+        _fileStamp = await f.lastModified();
       } else {
         // Primera vez: datos de ejemplo del paquete hasta la primera actualización.
         final raw = await rootBundle.loadString('assets/sample_snapshot.json');
@@ -56,6 +62,22 @@ class CarteleraRepository extends ChangeNotifier {
   Future<void> save(Snapshot s) async {
     final f = await _file();
     await f.writeAsString(jsonEncode(s.toJson()));
+    _fileStamp = await f.lastModified();
+  }
+
+  /// Vuelve a leer la cartelera guardada si otro proceso (los avisos en segundo plano) la
+  /// ha reescrito desde la última vez. Para llamarlo al volver a la app.
+  Future<void> reloadIfChanged() async {
+    if (refreshing || _fromSample) return;
+    try {
+      final f = await _file();
+      if (!await f.exists()) return;
+      final m = await f.lastModified();
+      if (_fileStamp != null && !m.isAfter(_fileStamp!)) return;
+      snapshot = Snapshot.fromJson(jsonDecode(await f.readAsString()) as Map<String, dynamic>);
+      _fileStamp = m;
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Vuelve a leer las webs desde el móvil.
@@ -78,7 +100,9 @@ class CarteleraRepository extends ChangeNotifier {
         RefreshKeepAlive.progress(p.done, p.total);
         notifyListeners();
       });
-      if (partial && prev != null && !_fromSample) s = _merge(prev, s);
+      if (partial && prev != null && !_fromSample) s = mergePartialSnapshot(prev, s);
+      // Avisos: lo mismo que la comprobación en segundo plano, ahora que ya se ha leído.
+      if (!_fromSample) unawaited(AlertNotifier.notify(newAlertMatches(prev, s, alerts)));
       snapshot = s;
       _fromSample = false;
       lastError = null;
@@ -90,27 +114,6 @@ class CarteleraRepository extends ChangeNotifier {
       await RefreshKeepAlive.stop();
       notifyListeners();
     }
-  }
-
-  /// Lectura parcial sobre la cartelera anterior: lo de las fuentes recién leídas sustituye
-  /// a lo suyo de antes; el resto se queda como estaba.
-  static Snapshot _merge(Snapshot prev, Snapshot fresh) {
-    final ids = {for (final f in fresh.sources) f.id};
-    final sessions = [
-      for (final s in prev.sessions)
-        if (!ids.contains(s.source)) s,
-      ...fresh.sessions,
-    ]..sort((a, b) {
-        final c = a.start.compareTo(b.start);
-        return c != 0 ? c : a.cinema.compareTo(b.cinema);
-      });
-    final order = {for (var i = 0; i < allSources.length; i++) allSources[i].id: i};
-    final statuses = [
-      for (final s in prev.sources)
-        if (!ids.contains(s.id)) s,
-      ...fresh.sources,
-    ]..sort((a, b) => (order[a.id] ?? 99).compareTo(order[b.id] ?? 99));
-    return Snapshot(generatedAt: prev.generatedAt, sources: statuses, sessions: sessions);
   }
 
   /// Quita de la cartelera guardada lo de las fuentes indicadas (al desactivarlas).

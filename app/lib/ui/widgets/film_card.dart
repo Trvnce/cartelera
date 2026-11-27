@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../filters/catalog.dart';
 import '../format.dart';
+import '../motion.dart';
 import '../theme.dart';
 import 'poster.dart';
 
@@ -15,6 +16,7 @@ class FilmCard extends StatelessWidget {
     required this.onTap,
     this.onLongPress,
     this.favorite = false,
+    this.heroTag,
   });
 
   final Film film;
@@ -22,6 +24,7 @@ class FilmCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
   final bool favorite;
+  final String? heroTag;
 
   static const _titleSize = 12.5;
   static const _smallSize = 11.0;
@@ -43,7 +46,7 @@ class FilmCard extends StatelessWidget {
       button: true,
       label: '${f.title}${favorite ? ', favorita' : ''}. ${fmtWhen(f.next.start, now)}. $summary',
       onLongPressHint: favorite ? 'Quitar de favoritas' : 'Guardar en favoritas',
-      child: InkWell(
+      child: PressScale(
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(8),
@@ -52,12 +55,10 @@ class FilmCard extends StatelessWidget {
           children: [
             AspectRatio(
               aspectRatio: 2 / 3,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Stack(
+              child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Poster(url: f.poster, title: f.title),
+                    PosterHero(tag: heroTag, radius: 8, child: Poster(url: f.poster, title: f.title)),
                     if (f.hasSpecial)
                       Positioned(
                         left: 5,
@@ -69,12 +70,16 @@ class FilmCard extends StatelessWidget {
                           tooltip: f.specialTags.map(capitalize).join(', '),
                         ),
                       ),
-                    if (favorite)
-                      const Positioned(
-                        right: 5,
-                        top: 5,
-                        child: _Dot(color: Color(0xCC000000), icon: Icons.favorite, iconColor: AppColors.amber),
+                    Positioned(
+                      right: 5,
+                      top: 5,
+                      // Aparece con un pequeño rebote al guardarla (Android).
+                      child: SwapIcon(
+                        child: favorite
+                            ? const _Dot(key: ValueKey('fav'), color: Color(0xCC000000), icon: Icons.favorite, iconColor: AppColors.amber)
+                            : const SizedBox(key: ValueKey('nofav'), width: 22, height: 22),
                       ),
+                    ),
                     if (versions.isNotEmpty)
                       Positioned(
                         left: 0,
@@ -82,6 +87,7 @@ class FilmCard extends StatelessWidget {
                         bottom: 0,
                         child: DecoratedBox(
                           decoration: const BoxDecoration(
+                            borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
@@ -101,7 +107,6 @@ class FilmCard extends StatelessWidget {
                       ),
                   ],
                 ),
-              ),
             ),
             const SizedBox(height: 6),
             Expanded(
@@ -140,7 +145,7 @@ class FilmCard extends StatelessWidget {
 
 /// Marca redonda sobre el póster (especial / favorita).
 class _Dot extends StatelessWidget {
-  const _Dot({required this.color, required this.icon, required this.iconColor, this.tooltip});
+  const _Dot({super.key, required this.color, required this.icon, required this.iconColor, this.tooltip});
   final Color color;
   final IconData icon;
   final Color iconColor;

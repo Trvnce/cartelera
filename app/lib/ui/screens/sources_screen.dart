@@ -6,6 +6,8 @@ import '../../data/model.dart';
 import '../app_model.dart';
 import '../format.dart';
 import '../theme.dart';
+import '../update_prompt.dart';
+import '../../data/updater.dart';
 import '../widgets/open_url.dart';
 
 /// Las fuentes: cada web con su interruptor (las desactivadas no se leen y sus pases no
@@ -119,10 +121,41 @@ class SourcesScreen extends StatelessWidget {
                   running: p != null && p.running.contains(r.src.name),
                   pending: p != null && !finished.containsKey(r.src.id),
                 ),
+              if (Updater.supported) const _AppVersion(),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// Pie de la lista: versión instalada y «Buscar actualizaciones» (GitHub Releases).
+class _AppVersion extends StatelessWidget {
+  const _AppVersion();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: FutureBuilder<String>(
+              future: Updater.installedVersion(),
+              builder: (_, v) => Text(
+                v.hasData ? 'Cartelera ${v.data}' : 'Cartelera',
+                style: const TextStyle(fontSize: 13, color: AppColors.muted),
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => checkForUpdateNow(context),
+            icon: const Icon(Icons.system_update_outlined, size: 18),
+            label: const Text('Buscar actualizaciones'),
+          ),
+        ],
+      ),
     );
   }
 }

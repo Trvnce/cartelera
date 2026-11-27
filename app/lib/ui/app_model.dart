@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/alerts.dart';
 import '../data/engine.dart' show allSources;
 import '../data/model.dart';
 import '../data/repository.dart';
@@ -122,6 +125,60 @@ class AppModel extends ChangeNotifier {
     if (list.isNotEmpty) unawaited(repo.refresh(sources: list, partial: true));
   }
 
+  // ── Avisos de pases nuevos (solo Android) ──────────────────────────────────────────
+
+  /// Los avisos dependen de WorkManager y de las notificaciones de Android.
+  static final bool alertsSupported = !kIsWeb && Platform.isAndroid;
+
+  AlertPrefs alerts = AlertPrefs();
+
+  bool isFilmWatched(String filmKey) => alerts.films.containsKey(filmKey);
+  bool isSourceWatched(String id) => alerts.sources.contains(id);
+
+  /// Activa o quita el aviso de una película. Al activar el primero pide el permiso de
+  /// notificaciones; devuelve false si se ha denegado (el aviso se guarda igualmente).
+  Future<bool> toggleFilmAlert(String filmKey, String title) async {
+    final films = {...alerts.films};
+    final adding = !films.containsKey(filmKey);
+    if (adding) {
+      films[filmKey] = title;
+    } else {
+      films.remove(filmKey);
+    }
+    return _setAlerts(alerts.copyWith(films: films), asking: adding);
+  }
+
+  Future<bool> toggleSourceAlert(String id) async {
+    final sources = {...alerts.sources};
+    final adding = sources.add(id);
+    if (!adding) sources.remove(id);
+    return _setAlerts(alerts.copyWith(sources: sources), asking: adding);
+  }
+
+  Future<void> setAlertInterval(Duration d) => _setAlerts(alerts.copyWith(interval: d));
+
+  Future<bool> _setAlerts(AlertPrefs a, {bool asking = false}) async {
+    alerts = a;
+    repo.alerts = a;
+    notifyListeners();
+    final p = _prefs;
+    if (p != null) await a.write(p);
+    if (!alertsSupported) return true;
+    final granted = asking ? await AlertNotifier.requestPermission() : true;
+    await AlertScheduler.sync(a);
+    return granted;
+  }
+
+  /// Última comprobación en segundo plano: cuándo y qué encontró.
+  Future<({DateTime? at, String? result})> lastAlertRun() async {
+    final p = _prefs;
+    if (p == null) return (at: null, result: null);
+    await p.reload();
+    return (at: DateTime.tryParse(p.getString(AlertPrefs.kLastRun) ?? ''), result: p.getString(AlertPrefs.kLastResult));
+  }
+
+  AppLifecycleListener? _lifecycle;
+
   SharedPreferences? _prefs;
   Timer? _minute;
   Timer? _saveDebounce;
@@ -138,6 +195,8 @@ class AppModel extends ChangeNotifier {
       favorites = {...?_prefs!.getStringList(_kFavorites)};
       final known = {for (final s in allSources) s.id};
       disabledSources = {...?_prefs!.getStringList(_kDisabledSources)}.intersection(known);
+      alerts = AlertPrefs.read(_prefs!);
+      repo.alerts = alerts;
     } catch (_) {
       // Sin preferencias se arranca con los filtros por defecto.
     }
@@ -148,6 +207,12 @@ class AppModel extends ChangeNotifier {
     // Los pases que van empezando desaparecen solos.
     _minute = Timer.periodic(const Duration(minutes: 1), (_) => _recompute());
     if (repo.isStale) unawaited(refresh());
+    if (alertsSupported) {
+      // Al volver a la app, lo que haya guardado la comprobación en segundo plano.
+      _lifecycle = AppLifecycleListener(onResume: () => unawaited(repo.reloadIfChanged()));
+      // Reprograma la tarea (p. ej., tras instalar una versión nueva).
+      if (!alerts.isEmpty) unawaited(AlertScheduler.sync(alerts));
+    }
   }
 
   void _onRepo() {
@@ -240,6 +305,7 @@ class AppModel extends ChangeNotifier {
   void dispose() {
     _minute?.cancel();
     _saveDebounce?.cancel();
+    _lifecycle?.dispose();
     repo.removeListener(_onRepo);
     super.dispose();
   }

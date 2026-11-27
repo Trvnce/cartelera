@@ -6,6 +6,9 @@ import '../theme.dart';
 import '../widgets/film_card.dart';
 import 'home_screen.dart' show EmptyResults, SortButton;
 
+/// Abre la ficha de una película; [heroTag] es el póster que vuela hasta ella.
+typedef OpenFilm = void Function(String filmKey, {String? heroTag});
+
 /// Cuadrícula de pósters compacta (3 columnas en móvil). La usan el catálogo
 /// (películas filtradas) y Favoritas.
 class FilmGrid extends StatelessWidget {
@@ -22,7 +25,7 @@ class FilmGrid extends StatelessWidget {
 
   final AppModel model;
   final List<Film> films;
-  final ValueChanged<String> onOpenFilm;
+  final OpenFilm onOpenFilm;
   final Future<void> Function() onRefresh;
   final String storageKey;
   final Widget Function(BoxConstraints c)? header;
@@ -62,12 +65,14 @@ class FilmGrid extends StatelessWidget {
                         itemCount: films.length,
                         itemBuilder: (context, i) {
                           final f = films[i];
+                          final tag = '$storageKey/${f.key}';
                           return FilmCard(
+                            heroTag: tag,
                             key: ValueKey(f.key),
                             film: f,
                             now: now,
                             favorite: model.isFavorite(f.key),
-                            onTap: () => onOpenFilm(f.key),
+                            onTap: () => onOpenFilm(f.key, heroTag: tag),
                             onLongPress: () => toggleFavoriteWithFeedback(context, model, f.key, f.title),
                           );
                         },
@@ -86,13 +91,20 @@ void toggleFavoriteWithFeedback(BuildContext context, AppModel model, String key
   final wasFav = model.isFavorite(key);
   model.toggleFavorite(key);
   final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
-  messenger.showSnackBar(SnackBar(
-    content: Text(wasFav ? 'Quitada de favoritas: $title' : 'Guardada en favoritas: $title',
-        maxLines: 2, overflow: TextOverflow.ellipsis),
-    behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 3),
-    action: SnackBarAction(label: 'Deshacer', onPressed: () => model.toggleFavorite(key)),
-  ));
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        wasFav ? 'Quitada de favoritas: $title' : 'Guardada en favoritas: $title',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 3),
+      // Con «Deshacer», Flutter la deja fija salvo persist: false.
+      persist: false,
+      action: SnackBarAction(label: 'Deshacer', onPressed: () => model.toggleFavorite(key)),
+    ),
+  );
 }
 
 /// Catálogo por película (películas que cumplen los filtros).
@@ -100,7 +112,7 @@ class CatalogView extends StatelessWidget {
   const CatalogView({super.key, required this.model, required this.onOpenFilm, required this.onRefresh});
 
   final AppModel model;
-  final ValueChanged<String> onOpenFilm;
+  final OpenFilm onOpenFilm;
   final Future<void> Function() onRefresh;
 
   @override
@@ -143,7 +155,7 @@ class FavoritesView extends StatelessWidget {
   const FavoritesView({super.key, required this.model, required this.onOpenFilm, required this.onRefresh});
 
   final AppModel model;
-  final ValueChanged<String> onOpenFilm;
+  final OpenFilm onOpenFilm;
   final Future<void> Function() onRefresh;
 
   @override
@@ -177,8 +189,11 @@ class FavoritesView extends StatelessWidget {
                   children: [
                     Icon(Icons.favorite_border, size: 44, color: AppColors.muted),
                     SizedBox(height: 16),
-                    Text('Aún no has guardado ninguna película',
-                        textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                    Text(
+                      'Aún no has guardado ninguna película',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
                     SizedBox(height: 8),
                     Text(
                       'Toca el corazón en la ficha de una película, o mantén pulsado su póster en el catálogo. '

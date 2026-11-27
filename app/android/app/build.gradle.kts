@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Clave de firma de las versiones publicadas (android/key.properties, fuera del repo).
+// Sin ella se firma con la de depuración: sirve para probar, pero esas compilaciones no
+// pueden actualizar una app instalada desde GitHub Releases ni al revés.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
 
 android {
     namespace = "io.github.trvnce.cartelera"
@@ -12,6 +23,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Lo exige flutter_local_notifications (avisos de pases nuevos).
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -35,11 +48,20 @@ android {
         manifestPlaceholders["appLabel"] = if (iosPreview) "Cartelera iOS" else "Cartelera"
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
 }
@@ -52,4 +74,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
