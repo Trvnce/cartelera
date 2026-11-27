@@ -31,6 +31,7 @@ CINEMAS = {
     "54,0,1.html": ("Yelmo Cines Ideal", True),
     "53,0,1.html": ("Cinesa Príncipe Pío", False),
     "dreams-cinema-palacio-hielo/": ("mk2 Palacio de Hielo", False),
+    "56,0,1.html": ("Kinépolis Ciudad de la Imagen", False),
     "471,0,1.html": ("mk2 Cinesur Luz del Tajo (Toledo)", False),
 }
 
@@ -89,7 +90,7 @@ def _parse(soup: BeautifulSoup, name: str, vo: bool, d: date, prices) -> list[Se
         country = next((x for x in data if not re.match(r"\d", x)), None)
         director = ", ".join(clean(x.get_text()) for x in it.select("p.dir a")) or None
         img = it.select_one(".tposter img")
-        for s in it.select(".sessions a[data-session-time]"):
+        for s in it.select(".sessions [data-session-time]"):
             fmt = clean(s.get("data-session-format"))
             version = detect_version(fmt, raw)
             if not version and vo and country:

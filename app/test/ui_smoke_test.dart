@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:cartelera/data/model.dart';
 import 'package:cartelera/data/repository.dart';
+import 'package:cartelera/data/sources/source.dart';
 import 'package:cartelera/ui/app_model.dart';
 import 'package:cartelera/ui/screens/home_screen.dart';
 import 'package:cartelera/ui/theme.dart';
@@ -27,7 +28,7 @@ class _FakeRepo extends CarteleraRepository {
       generatedAt: DateTime.now(),
       sources: [
         ...base.sources,
-        SourceStatus(id: 'rota', name: 'Fuente rota', url: 'https://example.com', ok: false, count: 0,
+        SourceStatus(id: 'casamerica', name: 'Casa de América', url: 'https://example.com', ok: false, count: 0,
             error: 'Tiempo de espera agotado', at: DateTime.now()),
       ],
       sessions: [
@@ -45,7 +46,7 @@ class _FakeRepo extends CarteleraRepository {
   }
 
   @override
-  Future<void> refresh() async {}
+  Future<void> refresh({List<Source>? sources, bool partial = false}) async {}
 }
 
 void main() {
@@ -131,9 +132,19 @@ void main() {
       // Fuentes.
       await tester.tap(find.byTooltip('Fuentes'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Fuente rota'), 300, scrollable: find.byType(Scrollable).last);
-      expect(find.text('Fuente rota'), findsOneWidget);
+      // La lista sale de las fuentes reales; la que falló enseña su error.
+      await tester.scrollUntilVisible(find.text('Tiempo de espera agotado'), 300, scrollable: find.byType(Scrollable).last);
       expect(find.text('Tiempo de espera agotado'), findsOneWidget);
+
+      // Desactivar una fuente la quita de la cartelera y se recuerda.
+      final kinepolis = find.text('Kinépolis Ciudad de la Imagen (vía eCartelera)');
+      await tester.scrollUntilVisible(kinepolis, 300, scrollable: find.byType(Scrollable).last);
+      await tester.ensureVisible(kinepolis);
+      await tester.pumpAndSettle();
+      await tester.tap(kinepolis);
+      await tester.pumpAndSettle();
+      expect(model.isSourceEnabled('ecartelera:kinepolis'), isFalse);
+      expect(find.text('Desactivada'), findsOneWidget);
     });
   }
 }

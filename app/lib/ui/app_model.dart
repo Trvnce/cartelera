@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/engine.dart' show allSources;
 import '../data/model.dart';
 import '../data/repository.dart';
+import '../data/sources/source.dart';
 import 'filters/catalog.dart';
 import 'filters/filter_state.dart';
 
@@ -18,6 +20,7 @@ class AppModel extends ChangeNotifier {
   static const _kFilters = 'ui.filters.v1';
   static const _kTab = 'ui.tab';
   static const _kFavorites = 'favorites.v1';
+  static const _kDisabledSources = 'sources.disabled.v1';
 
   /// Pestañas: 0 Películas · 1 Agenda · 2 Favoritas.
   static const tabCount = 3;
@@ -72,6 +75,53 @@ class AppModel extends ChangeNotifier {
     }
   }
 
+  /// Fuentes que el usuario ha desactivado (por `Source.id`): no se leen al actualizar y
+  /// sus pases no se enseñan.
+  Set<String> disabledSources = {};
+
+  bool isSourceEnabled(String id) => !disabledSources.contains(id);
+
+  List<Source> get enabledSources => [for (final s in allSources) if (!disabledSources.contains(s.id)) s];
+
+  /// Fuentes activadas mientras había otra actualización en marcha: se leen al acabar.
+  final Set<String> _pendingEnable = {};
+
+  /// Actualiza todas las fuentes activadas.
+  Future<void> refresh() => repo.refresh(sources: enabledSources);
+
+  /// Activa o desactiva una fuente. Al desactivarla, sus pases desaparecen ya; al activarla,
+  /// se lee solo esa web y se añade a lo que había. No deja desactivar la última.
+  void setSourceEnabled(String id, bool enabled) {
+    if (enabled == isSourceEnabled(id)) return;
+    if (!enabled && enabledSources.length <= 1) return;
+    disabledSources = {...disabledSources};
+    if (enabled) {
+      disabledSources.remove(id);
+    } else {
+      disabledSources.add(id);
+      _pendingEnable.remove(id);
+    }
+    if (disabledSources.isEmpty) {
+      _prefs?.remove(_kDisabledSources);
+    } else {
+      _prefs?.setStringList(_kDisabledSources, disabledSources.toList()..sort());
+    }
+    _recompute();
+    if (enabled) {
+      _pendingEnable.add(id);
+      _readPendingSources();
+    } else {
+      unawaited(repo.dropSources({id}));
+    }
+  }
+
+  void _readPendingSources() {
+    if (repo.refreshing || _pendingEnable.isEmpty) return;
+    final list = [for (final s in allSources) if (_pendingEnable.contains(s.id)) s];
+    _pendingEnable.clear();
+    if (list.isNotEmpty) unawaited(repo.refresh(sources: list, partial: true));
+  }
+
   SharedPreferences? _prefs;
   Timer? _minute;
   Timer? _saveDebounce;
@@ -86,6 +136,8 @@ class AppModel extends ChangeNotifier {
       _filters = FilterState.decode(_prefs!.getString(_kFilters));
       _tab = (_prefs!.getInt(_kTab) ?? 0).clamp(0, tabCount - 1);
       favorites = {...?_prefs!.getStringList(_kFavorites)};
+      final known = {for (final s in allSources) s.id};
+      disabledSources = {...?_prefs!.getStringList(_kDisabledSources)}.intersection(known);
     } catch (_) {
       // Sin preferencias se arranca con los filtros por defecto.
     }
@@ -95,7 +147,7 @@ class AppModel extends ChangeNotifier {
     _recompute();
     // Los pases que van empezando desaparecen solos.
     _minute = Timer.periodic(const Duration(minutes: 1), (_) => _recompute());
-    if (repo.isStale) unawaited(repo.refresh());
+    if (repo.isStale) unawaited(refresh());
   }
 
   void _onRepo() {
@@ -105,10 +157,24 @@ class AppModel extends ChangeNotifier {
       if (_wasRefreshing && snap != null) _pruneFavoritesAfterRefresh(snap);
       _wasRefreshing = repo.refreshing;
       _recompute();
+      if (!repo.refreshing) _afterRefresh();
     } else {
+      final finishedNow = _wasRefreshing && !repo.refreshing;
       _wasRefreshing = repo.refreshing;
       notifyListeners(); // progreso de la actualización
+      if (finishedNow) _afterRefresh();
     }
+  }
+
+  /// Al acabar una actualización: lo que se activó mientras tanto se lee ahora, y lo que se
+  /// desactivó mientras tanto (y la lectura ya traía) se quita de la cartelera guardada.
+  void _afterRefresh() {
+    final drop = {
+      for (final s in repo.snapshot?.sources ?? const <SourceStatus>[])
+        if (disabledSources.contains(s.id)) s.id,
+    };
+    if (drop.isNotEmpty) unawaited(repo.dropSources(drop));
+    _readPendingSources();
   }
 
   void setFilters(FilterState f) {
@@ -131,7 +197,10 @@ class AppModel extends ChangeNotifier {
     final snap = repo.snapshot;
     _lastSnapshot = snap;
     final n = now;
-    upcoming = upcomingSessions(snap?.sessions ?? const <Session>[], n);
+    upcoming = upcomingSessions(
+      [for (final s in snap?.sessions ?? const <Session>[]) if (!disabledSources.contains(s.source)) s],
+      n,
+    );
     visible = applyFilters(upcoming, _filters, n);
     films = groupFilms(visible, _filters.sort);
     days = groupByDay(visible);
